@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Gestão de Vendas</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; background: #f8f8f8; }
+  h1 { color: #333; }
+  label { display: block; margin-top: 10px; }
+  select, input, button { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; }
+  table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background-color: #eee; }
+  td.acao-btns button {
+    display: inline-block;
+    margin: 2px 4px;
+    padding: 5px 10px;
+    font-size: 0.9em;
+    cursor: pointer;
+  }
+  .btn-container { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<h1>Gestão de Vendas</h1>
+<form id="vendaForm">
+  <label for="data">Data:</label>
+  <input type="date" id="data" required>
+  <label for="cliente">Nome do Cliente:</label>
+  <input type="text" id="cliente" required>
+  <label for="localizador">Localizador:</label>
+  <input type="text" id="localizador" required>
+  <label for="titular">Titular:</label>
+  <select id="titular" required>
+    <option value="NELI">NELI</option>
+    <option value="THUCA">THUCA</option>
+    <option value="FABIULA">FABIULA</option>
+    <option value="FABIANA">FABIANA</option>
+    <option value="HERBERT">HERBERT</option>
+  </select>
+  <label for="valorWallet">Valor Wallet (R$):</label>
+  <input type="number" id="valorWallet" required step="0.01">
+  <label for="desagio">Deságio (%):</label>
+  <input type="number" id="desagio" step="0.01" required>
+  <label for="emissor">Emissor:</label>
+  <select id="emissor" required>
+    <option value="DANIEL">DANIEL</option>
+    <option value="THUCA">THUCA</option>
+    <option value="HERBERT">HERBERT</option>
+  </select>
+  <button id="registrarBtn" type="button" onclick="registrarVenda()">Registrar Venda</button>
+  <button id="atualizarBtn" type="button" onclick="atualizarVenda()" style="display:none;">Atualizar Venda</button>
+  <div id="editandoAviso" style="margin-top: 10px; color: red; font-weight: bold;"></div>
+</form>
+
+<h2>Histórico de Vendas</h2>
+<table id="tabelaVendas">
+  <thead>
+    <tr>
+      <th>Data</th>
+      <th>Cliente</th>
+      <th>Localizador</th>
+      <th>Titular</th>
+      <th>Valor Wallet (R$)</th>
+      <th>Deságio (%)</th>
+      <th>Receita (R$)</th><th>Custo Wallet (R$)</th><th>Lucro Final (R$)</th>
+      <th>Emissor</th>
+      <th style="min-width: 150px;">Ações</th>
+    </tr>
+  </thead>
+  <tbody id="vendasBody"></tbody>
+</table>
+
+<div class="btn-container">
+  <button onclick="exportarExcel()">Exportar para Excel</button>
+</div>
+
+<script>
+let vendas = JSON.parse(localStorage.getItem('vendas') || '[]');
+let indiceEdicao = null;
+
+function salvarVendas() {
+  localStorage.setItem('vendas', JSON.stringify(vendas));
+}
+
+function atualizarTabela() {
+  const tbody = document.getElementById('vendasBody');
+  tbody.innerHTML = '';
+  vendas.forEach((venda, index) => {
+    const linha = tbody.insertRow();
+    linha.insertCell(0).innerText = venda.data;
+    linha.insertCell(1).innerText = venda.cliente || '-';
+    linha.insertCell(2).innerText = venda.localizador;
+    linha.insertCell(3).innerText = venda.titular;
+    linha.insertCell(4).innerText = venda.valorWallet.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    
+linha.insertCell(5).innerText = venda.desagio.toFixed(2);
+linha.insertCell(6).innerText = (venda.receita || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+linha.insertCell(7).innerText = (venda.custoWallet || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+linha.insertCell(8).innerText = (venda.lucro || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+    linha.insertCell(6).innerText = venda.lucro.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const cellEmissor = linha.insertCell(7);
+    cellEmissor.innerHTML = venda.emissor + (venda.status === 'Cancelado' ? ' <span style="color:red; font-weight:bold;">(Venda cancelada)</span>' : '');
+    const acoes = linha.insertCell(8);
+    acoes.classList.add('acao-btns');
+    acoes.innerHTML = `
+      <button onclick="editarVenda(${index})">Editar</button>
+      <button onclick="cancelarVenda(${index})">Cancelar</button>`;
+  });
+  salvarVendas();
+}
+
+
+function registrarVenda() {
+  indiceEdicao = null;
+  const data = document.getElementById('data').value;
+  const localizador = document.getElementById('localizador').value;
+  const titular = document.getElementById('titular').value;
+  const valorWallet = parseFloat(document.getElementById('valorWallet').value.replace(',', '.'));
+  const desagio = parseFloat(document.getElementById('desagio').value.replace(',', '.'));
+  const emissor = document.getElementById('emissor').value;
+  const cliente = document.getElementById('cliente').value;
+
+  if (!data || !localizador || !titular || isNaN(valorWallet) || isNaN(desagio) || !emissor) {
+    alert('Preencha todos os campos corretamente.');
+    return;
+  }
+
+  const custoWallet = valorWallet * 0.1003;
+  const receita = valorWallet - (valorWallet * (desagio / 100));
+  const lucro = receita - custoWallet;
+
+  vendas.push({ data, localizador, cliente, titular, valorWallet, desagio, receita, custoWallet, lucro, emissor, status: 'Ativo' });
+  atualizarTabela();
+  document.getElementById('vendaForm').reset();
+  document.getElementById('registrarBtn').style.display = 'inline-block';
+  document.getElementById('atualizarBtn').style.display = 'none';
+  document.getElementById('editandoAviso').innerText = '';
+}
+
+  indiceEdicao = null;
+  const data = document.getElementById('data').value;
+  const localizador = document.getElementById('localizador').value;
+  const titular = document.getElementById('titular').value;
+  const valorWallet = parseFloat(document.getElementById('valorWallet').value);
+  const desagio = parseFloat(document.getElementById('desagio').value);
+  const emissor = document.getElementById('emissor').value;
+  if (!data || !localizador || !titular || isNaN(valorWallet) || isNaN(desagio) || !emissor) {
+    alert('Preencha todos os campos corretamente.');
+    return;
+  }
+  const lucro = valorWallet - (valorWallet * (desagio / 100));
+  const cliente = document.getElementById('cliente').value;
+  vendas.push({ data, localizador, cliente, titular, valorWallet, desagio, lucro, emissor, status: 'Ativo' });
+  atualizarTabela();
+  document.getElementById('vendaForm').reset();
+  document.getElementById('registrarBtn').style.display = 'inline-block';
+  document.getElementById('atualizarBtn').style.display = 'none';
+  document.getElementById('editandoAviso').innerText = '';
+}
+
+function editarVenda(index) {
+  indiceEdicao = index;
+  const venda = vendas[index];
+  document.getElementById('data').value = venda.data;
+  document.getElementById('cliente').value = venda.cliente;
+  document.getElementById('localizador').value = venda.localizador;
+  document.getElementById('titular').value = venda.titular;
+  document.getElementById('valorWallet').value = venda.valorWallet;
+  document.getElementById('desagio').value = venda.desagio;
+  document.getElementById('emissor').value = venda.emissor;
+  document.getElementById('registrarBtn').style.display = 'none';
+  document.getElementById('atualizarBtn').style.display = 'inline-block';
+  document.getElementById('editandoAviso').innerText = 'Editando venda — clique em ATUALIZAR VENDA para salvar';
+}
+
+function atualizarVenda() {
+  if (indiceEdicao === null) return;
+  const data = document.getElementById('data').value;
+  const localizador = document.getElementById('localizador').value;
+  const titular = document.getElementById('titular').value;
+  const valorWallet = parseFloat(document.getElementById('valorWallet').value);
+  const desagio = parseFloat(document.getElementById('desagio').value);
+  const emissor = document.getElementById('emissor').value;
+  const lucro = valorWallet - (valorWallet * (desagio / 100));
+  const status = vendas[indiceEdicao].status || 'Ativo';
+  const cliente = document.getElementById('cliente').value;
+  vendas[indiceEdicao] = { data, localizador, cliente, titular, valorWallet, desagio, lucro, emissor, status };
+  atualizarTabela();
+  document.getElementById('vendaForm').reset();
+  document.getElementById('registrarBtn').style.display = 'inline-block';
+  document.getElementById('atualizarBtn').style.display = 'none';
+  document.getElementById('editandoAviso').innerText = '';
+  indiceEdicao = null;
+}
+
+function cancelarVenda(index) {
+  const venda = vendas[index];
+  venda.status = 'Cancelado';
+  atualizarTabela();
+}
+
+atualizarTabela();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+function exportarExcel() {
+  if (typeof XLSX === 'undefined') {
+    alert('Biblioteca Excel não carregada corretamente.');
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  const dados = [["Data", "Cliente", "Localizador", "Titular", "Valor Wallet", "Deságio", "Lucro Final", "Emissor", "Status"]];
+  vendas.forEach(v => {
+    dados.push([
+      v.data || '',
+      v.cliente || '',
+      v.localizador || '',
+      v.titular || '',
+      (v.valorWallet || 0).toFixed(2),
+      (v.desagio || 0).toFixed(2),
+      (v.lucro || 0).toFixed(2),
+      v.emissor || '',
+      v.status || 'Ativo'
+    ]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(dados);
+  XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+  XLSX.writeFile(wb, "relatorio_vendas.xlsx");
+}
+</script>
+</body>
+</html>
